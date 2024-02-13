@@ -320,7 +320,11 @@ uintnat gensize(uintnat words)
 }
 #endif
 
-void create_space(struct space *s,  /* which generation to create */
+/* This function differs from the original variant:
+ * While the original exits on failing allocation, this variant returns
+ * true on successful allocation and false, else.
+ */
+_Bool create_space(struct space *s,  /* which generation to create */
 		  uintnat n) /* size of the generation */
   /* malloc an array of words for generation "s", and
      set s->start and s->next to the beginning, and s->limit to the end.
@@ -330,14 +334,23 @@ void create_space(struct space *s,  /* which generation to create */
   value *p;
   p = (value *)malloc(n * sizeof(value));
   if (p==NULL)
-    abort_with ("Could not create the next generation\n");
+  {
+    fprintf(stderr, "Could not create the next generation\n");
+    return 0;
+  }
   /*  fprintf(stderr, "Created a generation of %d words\n", n); */
   s->start=p;
   s->next=p;
   s->limit = p+n;
   s->rem_limit = s->limit;
+  return 1;
 }
 
+/* This function differs from the original variant:
+ * While the original exits on failing allocation or failing create_space,
+ * this variant returns a nonnull pointer on successful allocation and a
+ * nullptr, else.
+ */
 struct heap *create_heap()
 /* To create a heap, first malloc the array of space-descriptors,
    then create only generation 0.  */
@@ -345,8 +358,17 @@ struct heap *create_heap()
   int i;
   struct heap *h = (struct heap *)malloc(sizeof (struct heap));
   if (h==NULL)
-    abort_with("Could not create the heap\n");
-  create_space(h->spaces+0, NURSERY_SIZE);
+  {
+    fprintf(stderr, "Could not create the heap\n");
+    return h;
+  }
+
+  // Now, create the space and catch errors.
+  if (0 == create_space(h->spaces+0, NURSERY_SIZE)) // @safe
+  {
+    return NULL;
+  }
+
   for(i=1; i<MAX_SPACES; i++) {
     h->spaces[i].start = NULL;
     h->spaces[i].next = NULL;
@@ -356,13 +378,25 @@ struct heap *create_heap()
   return h;
 }
 
+/* This function differs from the original variant:
+ * While the original exits on failing create_heap or tinfo allocation,
+ * this variant returns a nonnull pointer on success and a nullptr, else.
+ */
 struct thread_info *make_tinfo(void) {
   struct heap *h;
   struct thread_info *tinfo;
-  h = create_heap();
+  h = create_heap(); // @safe
+  if (h == NULL)
+  {
+    return NULL;
+  }
+
   tinfo = (struct thread_info *)malloc(sizeof(struct thread_info));
-  if (!tinfo) 
-    abort_with("Could not allocate thread_info struct\n");
+  if (!tinfo)
+  {
+    fprintf(stderr, "Could not allocate thread_info struct\n");
+    return tinfo;
+  }
 
   tinfo->heap=h;
   tinfo->alloc=h->spaces[0].start;
