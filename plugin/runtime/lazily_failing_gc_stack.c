@@ -550,10 +550,20 @@ void free_heap (struct heap *h) {
   free (h);
 }
 
+/* This function differs from the original variant:
+ * While the original exits if the heap cannot be allocated, this variant
+ * returns -1 as error value and i, else.
+ * Returning -1 is safe here since a valid i is in the range of
+ * [0,MAX_SPACES-2].
+ */
 int garbage_collect_all(struct thread_info *ti) {
   struct heap *h = ti->heap;
   if (h==NULL) {
     h = create_heap();
+    if (h==NULL)
+    {
+      return -1;
+    }
     ti->heap = h;
   }
   int i;
@@ -561,12 +571,25 @@ int garbage_collect_all(struct thread_info *ti) {
   h->spaces[0].limit = ti->limit;
   h->spaces[0].next = ti->alloc;  /* this line more necessary here than perhaps in garbage_collect() */
   for (i=0; i < MAX_SPACES - 1 && h->spaces[i+1].start != NULL; i++)
-    do_generation(h->spaces+i, h->spaces+(i+1), ti->fp);
+  {
+    if (0==do_generation(h->spaces+i, h->spaces+(i+1), ti->fp))
+    {
+      return -1;
+    }
+  }
 
   return i;
 }
 
 /* export_heap (deep copy if boxed) from the given root */
+// @public, @unsafe:asserts
+/* This function differs from the original variant:
+ * The original one does not guard failing allocations.
+ * And while the original exits if the space cannot be allocated, this variant
+ * returns a nullpointer as error value and result block, else.
+ * Also, on error we free as much space as possible.
+ * TODO: Do we really free everything we can?
+ */
 void *export_heap(struct thread_info *ti, value root) {
 
 
@@ -585,15 +608,54 @@ void *export_heap(struct thread_info *ti, value root) {
 
   /* otherwise collect all that is reachable from it to the last generation, then compact it into value_sp */
   int gen_level = garbage_collect_all(ti);
+  if (gen_level == -1)
+  {
+    return NULL;
+  }
+
   struct space* sp = ti->heap->spaces+gen_level;
   struct space* fake_sp = (struct space*)malloc(sizeof(struct space));
+  if (!fake_sp)
+  {
+    fprintf(stderr, "Could not allocate fake_sp\n");
+    return NULL;
+  }
 
-  create_space(fake_sp, sp->next - sp->start);
-  do_generation(sp, fake_sp, ti->fp);
+  if (0==create_space(fake_sp, sp->next - sp->start))
+  {
+    fprintf(stderr, "Could not allocate space for fake_sp\n");
+    free(fake_sp);
+    return NULL;
+  }
+
+  if (0==do_generation(sp, fake_sp, ti->fp))
+  {
+    return NULL;
+  }
 
   struct space* value_sp = (struct space*)malloc(sizeof(struct space));
-  create_space(value_sp, fake_sp->next - fake_sp->start);
-  do_generation(fake_sp, value_sp, ti->fp);
+  if (!value_sp)
+  {
+    fprintf(stderr, "Could not allocate value_sp. Freeing fake_sp->start and fake_sp.\n");
+    free(fake_sp->start);
+    free(fake_sp);
+    return NULL;
+  }
+
+  if (0==create_space(value_sp, fake_sp->next - fake_sp->start))
+  {
+    fprintf(stderr, "Could not allocate space for value_sp. Freeing fake_sp->start, fake_sp and value_sp.\n");
+    free(fake_sp->start);
+    free(fake_sp);
+    free(value_sp);
+    return NULL;
+  }
+
+  if (0==do_generation(fake_sp, value_sp, ti->fp))
+  {
+    return NULL;
+  }
+
 
   /* offset start by the header */
   void* result_block = (void *)(value_sp->start +1);
