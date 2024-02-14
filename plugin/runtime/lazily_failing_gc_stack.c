@@ -606,12 +606,21 @@ void *export_heap(struct thread_info *ti, value root) {
 }
 
 /* mutable write barrier */
-void certicoq_modify(struct thread_info *ti, value *p_cell, value p_val) {
-  assert (ti->alloc < ti->limit);
+_Bool certicoq_modify(struct thread_info *ti, value *p_cell, value p_val) {
+  #ifdef CERTICOQ_KERNEL_SPACE
+  if (!(ti->alloc < ti->limit))
+  {
+    fprintf(stderr, "Assertion \"ti->alloc < ti->limit\" failed in certicoq_modify\n");
+    return 0;
+  }
+  #else
+  assert ((ti->alloc < ti->limit));
+  #endif
   *p_cell = p_val;
   if (is_ptr(p_val)) {
     *(value **)(--ti->limit) = p_cell;
   }
+  return 1;
 }
 
 void print_heapsize(struct thread_info *ti) {
