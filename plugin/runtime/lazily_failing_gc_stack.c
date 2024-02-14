@@ -4,7 +4,7 @@
 #include "m.h"  /* use printm.c to create m.h */
 #include "config.h"
 #include "values.h"
-#include "gc_stack.h"
+#include "lazily_failing_gc_stack.h"
 
 /* A version of GC that scans a stack in order to find the roots. It is useful
  * when compiling direct-style programs
@@ -213,13 +213,29 @@ void forward (value *from_start,  /* beginning of from-space */
     }
   }
 }
-void forward_remset (struct space *from,  /* descriptor of from-space */
+
+/* This function differs from the original variant:
+ * The original may fail on assertion and returns nothing,
+ * When compiled with CERTICOQ_KERNEL_SPACE, this variant
+ * returns false on failing assertion and true, else.
+ * If compiled without CERTICOQ_KERNEL_SPACE, the function
+ * always returns true except when the assertion fails.
+ */
+_Bool forward_remset (struct space *from,  /* descriptor of from-space */
                      struct space *to,    /* descriptor of to-space */
                      value **next)        /* next available spot in to-space */
 {
   value *from_start = from->start, *from_limit=from->limit, *from_rem_limit=from->rem_limit;
   value *q = from_limit;
+  #ifdef CERTICOQ_KERNEL_SPACE
+  if (!((from_rem_limit-from_limit) <= (to->limit-to->start)))
+  {
+    fprintf(stderr, "Assertion \"from_rem_limit-from_limit <= to->limit-to->start\" failed in forward_remset\n");
+    return 0;
+  }
+  #else
   assert (from_rem_limit-from_limit <= to->limit-to->start);
+  #endif
   while (q != from_rem_limit) {
     value *p = *(value**)q;
     if (!(from_start <= p && p < from_limit)) {
@@ -231,6 +247,7 @@ void forward_remset (struct space *from,  /* descriptor of from-space */
     }
     q++;
   }
+  return 1;
 }
 
 void forward_roots (value *from_start,  /* beginning of from-space */
@@ -279,7 +296,12 @@ void do_scan(value *from_start,  /* beginning of from-space */
   }
 }
 
-void do_generation (struct space *from,  /* descriptor of from-space */
+/* This function differs from the original variant:
+ * While the original may fail by an assertion in forward_remset,
+ * this variant catches the failure and returns false. If no error
+ * condition was met, true is returned.
+ */
+_Bool do_generation (struct space *from,  /* descriptor of from-space */
                     struct space *to,    /* descriptor of to-space */
                     struct stack_frame *fr)  /* where are the roots? */
 /* Copy the live objects out of the "from" space, into the "to" space,
@@ -287,7 +309,10 @@ void do_generation (struct space *from,  /* descriptor of from-space */
 {
   value *p = to->next;
   /*  assert(from->next-from->start + from->rem_limit-from->limit <= to->limit-to->next); */
-  forward_remset(from, to, &to->next);
+  if (0==forward_remset(from, to, &to->next))
+  {
+    return 0;
+  }
   forward_roots(from->start, from->limit, &to->next, fr);
   do_scan(from->start, from->limit, p, &to->next);
   #ifdef CERTICOQ_DEBUG_GC
@@ -296,6 +321,7 @@ void do_generation (struct space *from,  /* descriptor of from-space */
   #endif
   from->next=from->start;
   from->limit=from->rem_limit;
+  return 1;
 }
 
 #if 0
@@ -407,7 +433,11 @@ struct thread_info *make_tinfo(void) {
   return tinfo;
 }
 
-void resume(struct thread_info *ti)
+/* This function differs from the original variant:
+ * While the original exits if the nursery is too small, this variant returns
+ * false in this case and true, else.
+ */
+_Bool resume(struct thread_info *ti)
 /* When the garbage collector is all done, inform the mutator
    of the new values for the alloc and limit pointers,
    and check that enough space has been freed  (ti->nalloc words).
@@ -416,17 +446,35 @@ void resume(struct thread_info *ti)
   struct heap *h = ti->heap;
   value *lo, *hi;
   uintnat num_allocs = ti->nalloc;
+  #ifdef CERTICOQ_KERNEL_SPACE
+  if (NULL==h)
+  {
+    fprintf(stderr, "Heap is unset in resume\n");
+    return 0;
+  }
+  #else
   assert (h);
+  #endif
   lo = h->spaces[0].start;
   hi = h->spaces[0].limit;
   if (hi-lo < num_allocs)   /* See NOTE-POINTER-ARITH below */
-    abort_with ("Nursery is too small for function's num_allocs\n");
+  {
+    fprintf(stderr, "Nursery is too small for function's num_allocs\n");
+    return 0;
+  }
+
   ti->alloc = lo;
   ti->limit = hi;
   /* printf ("end gc\n"); */
+  return 1;
 }
 
-void garbage_collect(struct thread_info *ti)
+/* This function differs from the original variant:
+ * While the original exits if a space cannot be created, do_generation or
+ * resume fail or MAX_SPACES is reached, this variant returns false in this case and true,
+ * else.
+ */
+_Bool garbage_collect(struct thread_info *ti)
 /* See the header file for the interface-spec of this function. */
 {
   struct heap *h = ti->heap;
@@ -443,13 +491,19 @@ void garbage_collect(struct thread_info *ti)
       /* If the next generation does not yet exist, create it */
       if (h->spaces[i+1].start==NULL) {
         intnat w = h->spaces[i].rem_limit-h->spaces[i].start;    /* See NOTE-POINTER-ARITH below */
-        create_space(h->spaces+(i+1), RATIO*w);
+        if (0==create_space(h->spaces+(i+1), RATIO*w))
+        {
+          return 0;
+        }
       }
       /* Copy all the objects in generation i, into generation i+1 */
       #ifdef CERTICOQ_DEBUG_GC
       fprintf(stderr, "Generation %d:  ", i);
       #endif
-      do_generation(h->spaces+i, h->spaces+(i+1), ti->fp);
+      if (0==do_generation(h->spaces+i, h->spaces+(i+1), ti->fp))
+      {
+        return 0;
+      }
       /* If there's enough space in gen i+1 to guarantee that the
          NEXT collection into i+1 will succeed, we can stop here.
          We need enough space in the (unlikely) scenario where
@@ -458,14 +512,14 @@ void garbage_collect(struct thread_info *ti)
       */
       if (h->spaces[i].rem_limit - h->spaces[i].start    /* See NOTE-POINTER-ARITH below */
           <= h->spaces[i+1].limit - h->spaces[i+1].next) {
-        resume(ti);
-        return;
+        return resume(ti);
       }
     }
 
   /* If we get to i==MAX_SPACES, that's bad news */
   /*  assert (MAX_SPACES == i); */
-  abort_with("Ran out of generations\n");
+  fprintf(stderr, "Ran out of generations\n");
+  return 0;
 }
 
 /* REMARK.  The generation-management policy in the garbage_collect function
@@ -524,7 +578,7 @@ void *export_heap(struct thread_info *ti, value root) {
   frame.next=roots+1;
   frame.prev=NULL;
   ti->fp= &frame;
-  
+
   /* if root is unboxed, return it */
   if(!is_ptr(root))
     return (void *)root;
@@ -583,5 +637,5 @@ void print_heapsize(struct thread_info *ti) {
  might be similar in size to the entire address space. 
 */
 
-    
-    
+
+

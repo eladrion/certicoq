@@ -140,7 +140,7 @@ struct thread_info {
 
 struct thread_info *make_tinfo(void);
 
-void garbage_collect(struct thread_info *ti);
+_Bool garbage_collect(struct thread_info *ti);
 /* Performs one garbage collection; 
    or if ti->heap==NULL, initializes the heap. 
 
