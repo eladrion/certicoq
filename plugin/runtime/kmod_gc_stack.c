@@ -1,4 +1,4 @@
-#include <stdlib.h>
+#include <kmod_alloc.h> // For memory allocations
 #include <linux/printk.h> // For printk
 #include "m.h"  /* use printm.c to create m.h */
 #include "config.h"
@@ -360,7 +360,7 @@ _Bool create_space(struct space *s,  /* which generation to create */
 
  {
   value *p;
-  p = (value *)malloc(n * sizeof(value));
+  p = (value *)alloc_array(n, sizeof(value));
   if (p==NULL)
   {
     printk(KERN_ERR "Could not create the next generation\n");
@@ -384,7 +384,7 @@ struct heap *create_heap(void)
    then create only generation 0.  */
 {
   int i;
-  struct heap *h = (struct heap *)malloc(sizeof (struct heap));
+  struct heap *h = (struct heap *)alloc(sizeof (struct heap));
   if (h==NULL)
   {
     printk(KERN_ERR "Could not create the heap\n");
@@ -419,7 +419,7 @@ struct thread_info *make_tinfo(void) {
     return NULL;
   }
 
-  tinfo = (struct thread_info *)malloc(sizeof(struct thread_info));
+  tinfo = (struct thread_info *)alloc(sizeof(struct thread_info));
   if (!tinfo)
   {
     printk(KERN_ERR "Could not allocate thread_info struct\n");
@@ -433,6 +433,12 @@ struct thread_info *make_tinfo(void) {
   tinfo->nalloc=0;
   tinfo->odata=NULL;
   return tinfo;
+}
+
+void free_tinfo(struct thread_info * tinfo)
+{
+  free_heap(tinfo->heap);
+  free(tinfo);
 }
 
 /* This function differs from the original variant:
@@ -612,7 +618,7 @@ void *export_heap(struct thread_info *ti, value root) {
   }
 
   struct space* sp = ti->heap->spaces+gen_level;
-  struct space* fake_sp = (struct space*)malloc(sizeof(struct space));
+  struct space* fake_sp = (struct space*)alloc(sizeof(struct space));
   if (!fake_sp)
   {
     printk(KERN_ERR "Could not allocate fake_sp\n");
@@ -631,7 +637,7 @@ void *export_heap(struct thread_info *ti, value root) {
     return NULL;
   }
 
-  struct space* value_sp = (struct space*)malloc(sizeof(struct space));
+  struct space* value_sp = (struct space*)alloc(sizeof(struct space));
   if (!value_sp)
   {
     printk(KERN_ERR "Could not allocate value_sp. Freeing fake_sp->start and fake_sp.\n");
