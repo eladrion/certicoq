@@ -149,7 +149,7 @@ bits  63        (64-P) (63-P)        10 9     8 7   0
 #define Val_op(op) ((value) (op))
 #define Val_hp(hp) ((value) (((header_t *) (hp)) + 1))
 #define Op_hp(hp) ((value *) Val_hp (hp))
-#define Bp_hp(hp) ((char *) Val_hp (hp))
+#define Bp_hp(hp) ((signed char *) Val_hp (hp))
 
 #define Num_tags (1 << 8)
 #ifdef ARCH_SIXTYFOUR
@@ -205,10 +205,10 @@ bits  63        (64-P) (63-P)        10 9     8 7   0
 #define Field(x, i) (((value *)(x)) [i])           /* Also an l-value. */
 
 /* Pointer to the first byte */
-#define Bp_val(v) ((char *) (v))
+#define Bp_val(v) ((signed char *) (v))
 #define Val_bp(p) ((value) (p))
 /* Bytes are numbered from 0. */
-#define Byte(x, i) (((char *) (x)) [i])            /* Also an l-value. */
+#define Byte(x, i) (((signed char *) (x)) [i])            /* Also an l-value. */
 #define Byte_u(x, i) (((unsigned char *) (x)) [i]) /* Also an l-value. */
   
 #ifdef __cplusplus
