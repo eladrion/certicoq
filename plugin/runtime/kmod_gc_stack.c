@@ -309,8 +309,8 @@ _Bool do_generation (struct space *from,  /* descriptor of from-space */
   forward_roots(from->start, from->limit, &to->next, fr);
   do_scan(from->start, from->limit, p, &to->next);
   #ifdef CERTICOQ_DEBUG_GC
-  printk(KERN_INFO "%5.3f%% occupancy\n",
-	  (to->next-p)/(double)(from->next-from->start));
+  printk(KERN_INFO "%d%% occupancy\n",
+	  (to->next-p)/(from->next-from->start));
   #endif
   from->next=from->start;
   from->limit=from->rem_limit;
@@ -360,6 +360,9 @@ _Bool create_space(struct space *s,  /* which generation to create */
 
  {
   value *p;
+  #ifdef CERTICOQ_DEBUG_GC
+  printk(KERN_INFO "Allocating array with %llu cells.", n);
+  #endif
   p = (value *)alloc_array(n, sizeof(value));
   if (p==NULL)
   {
