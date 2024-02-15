@@ -226,7 +226,7 @@ _Bool forward_remset (struct space *from,  /* descriptor of from-space */
   value *q = from_limit;
   if (!((from_rem_limit-from_limit) <= (to->limit-to->start)))
   {
-    fprintf(stderr, "Assertion \"from_rem_limit-from_limit <= to->limit-to->start\" failed in forward_remset\n");
+    printk(KERN_ERR "Assertion \"from_rem_limit-from_limit <= to->limit-to->start\" failed in forward_remset\n");
     return 0;
   }
   while (q != from_rem_limit) {
@@ -331,7 +331,7 @@ uintnat gensize(uintnat words)
   /* minor bug:  this assumes sizeof(uintnat)==sizeof(void*)==sizeof(value) */
   if (words > maxint/(2*sizeof(value)))
   {
-    fprintf(stderr, "Next generation would be too big for address space\n");
+    printk(KERN_ERR "Next generation would be too big for address space\n");
     return 0;
   }
 
@@ -340,7 +340,7 @@ uintnat gensize(uintnat words)
   n = d*RATIO;
   if (!(n >= (2*words)))
   {
-    fprintf(stderr, "Assertion in gensize failed: next_gen_size >= 2*curr_gen_size.\n");
+    printk(KERN_ERR "Assertion in gensize failed: next_gen_size >= 2*curr_gen_size.\n");
     return 0;
   }
 
@@ -456,7 +456,7 @@ _Bool resume(struct thread_info *ti)
   uintnat num_allocs = ti->nalloc;
   if (NULL==h)
   {
-    fprintf(stderr, "Heap is unset in resume\n");
+    printk(KERN_ERR "Heap is unset in resume\n");
     return 0;
   }
   lo = h->spaces[0].start;
@@ -675,7 +675,7 @@ void *export_heap(struct thread_info *ti, value root) {
 _Bool certicoq_modify(struct thread_info *ti, value *p_cell, value p_val) {
   if (!(ti->alloc < ti->limit))
   {
-    fprintf(stderr, "Assertion \"ti->alloc < ti->limit\" failed in certicoq_modify\n");
+    printk(KERN_ERR "Assertion \"ti->alloc < ti->limit\" failed in certicoq_modify\n");
     return 0;
   }
   *p_cell = p_val;
