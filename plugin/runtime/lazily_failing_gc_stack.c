@@ -1,6 +1,9 @@
 #include <stdlib.h>
 #include <stdio.h>
+#ifndef CERTICOQ_KERNEL_SPACE
+// Only include assert if compiling for user space.
 #include <assert.h>
+#endif
 #include "m.h"  /* use printm.c to create m.h */
 #include "config.h"
 #include "values.h"
@@ -149,11 +152,6 @@ void printtree(FILE *f, struct heap *h, value v) {
 /* } */
 
 #endif
-
-void abort_with(char *s) {
-  fprintf(stderr, "%s", s);
-  exit(1);
-}
 
 int Is_from(value* from_start, value * from_limit,  value * v) {
     return (from_start <= v && v < from_limit);
@@ -337,11 +335,24 @@ uintnat gensize(uintnat words)
      unsigned integer. */
   /* minor bug:  this assumes sizeof(uintnat)==sizeof(void*)==sizeof(value) */
   if (words > maxint/(2*sizeof(value)))
-    abort_with("Next generation would be too big for address space\n");
+  {
+    fprintf(stderr, "Next generation would be too big for address space\n");
+    return 0;
+  }
+
   d = maxint/RATIO;
   if (words<d) d=words;
   n = d*RATIO;
+  #ifdef CERTICOQ_KERNEL_SPACE
+  if (!(n >= (2*words)))
+  {
+    fprintf(stderr, "Assertion in gensize failed: next_gen_size >= 2*curr_gen_size.\n");
+    return 0;
+  }
+  #else
   assert (n >= 2*words);
+  #endif
+
   return n;
 }
 #endif
@@ -474,7 +485,7 @@ _Bool resume(struct thread_info *ti)
  * resume fail or MAX_SPACES is reached, this variant returns false in this case and true,
  * else.
  */
-_Bool garbage_collect(struct thread_info *ti)
+_Bool do_garbage_collect(struct thread_info *ti)
 /* See the header file for the interface-spec of this function. */
 {
   struct heap *h = ti->heap;
@@ -521,6 +532,24 @@ _Bool garbage_collect(struct thread_info *ti)
   fprintf(stderr, "Ran out of generations\n");
   return 0;
 }
+
+/* In Kernel space, the error from do_garbage_collect is propagated
+ * while a failing do_garbage_collect leads to an exit in user space
+ * as before.
+ */
+#ifdef CERTICOQ_KERNEL_SPACE
+inline _Bool garbage_collect(struct thread_info *ti)
+{
+  return do_garbage_collect(ti);
+}
+#else
+inline void garbage_collect(struct thread_info *ti)
+{
+  if (0==do_garbage_collect(ti))
+    exit(1);
+}
+#endif
+
 
 /* REMARK.  The generation-management policy in the garbage_collect function
    has a potential flaw.  Whenever a record is copied, it is promoted to
