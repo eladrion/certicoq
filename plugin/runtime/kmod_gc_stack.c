@@ -379,7 +379,7 @@ _Bool create_space(struct space *s,  /* which generation to create */
  * this variant returns a nonnull pointer on successful allocation and a
  * nullptr, else.
  */
-struct heap *create_heap()
+struct heap *create_heap(void)
 /* To create a heap, first malloc the array of space-descriptors,
    then create only generation 0.  */
 {
@@ -392,7 +392,7 @@ struct heap *create_heap()
   }
 
   // Now, create the space and catch errors.
-  if (0 == create_space(h->spaces+0, NURSERY_SIZE)) // @safe
+  if (0 == create_space(h->spaces+0, NURSERY_SIZE))
   {
     return NULL;
   }
@@ -413,7 +413,7 @@ struct heap *create_heap()
 struct thread_info *make_tinfo(void) {
   struct heap *h;
   struct thread_info *tinfo;
-  h = create_heap(); // @safe
+  h = create_heap();
   if (h == NULL)
   {
     return NULL;
@@ -581,7 +581,6 @@ int garbage_collect_all(struct thread_info *ti) {
 }
 
 /* export_heap (deep copy if boxed) from the given root */
-// @public, @unsafe:asserts
 /* This function differs from the original variant:
  * The original one does not guard failing allocations.
  * And while the original exits if the space cannot be allocated, this variant
