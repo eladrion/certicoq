@@ -1,9 +1,5 @@
 #include <stdlib.h>
-#include <stdio.h>
-#ifndef CERTICOQ_KERNEL_SPACE
-// Only include assert if compiling for user space.
-#include <assert.h>
-#endif
+#include <linux/printk.h> // For printk
 #include "m.h"  /* use printm.c to create m.h */
 #include "config.h"
 #include "values.h"
@@ -102,6 +98,10 @@ struct space {
 
 #ifdef DEBUG
 
+#ifndef CLIGHT_KERNEL_CODE
+/* Writing to files from a kernel module is not safe so we deactivate  */
+/* printtree kernel mode. Since in_heap is also used only by printtree */
+/* we deactivate that, too. */
 int in_heap(struct heap *h, value v) {
   int i;
   for (i=0; i<MAX_SPACES; i++)
@@ -151,7 +151,9 @@ void printtree(FILE *f, struct heap *h, value v) {
 /*   fprintf(f,"\n"); */
 /* } */
 
-#endif
+#endif // !CLIGHT_KERNEL_CODE
+
+#endif // DEBUG
 
 int Is_from(value* from_start, value * from_limit,  value * v) {
     return (from_start <= v && v < from_limit);
@@ -214,10 +216,7 @@ void forward (value *from_start,  /* beginning of from-space */
 
 /* This function differs from the original variant:
  * The original may fail on assertion and returns nothing,
- * When compiled with CERTICOQ_KERNEL_SPACE, this variant
- * returns false on failing assertion and true, else.
- * If compiled without CERTICOQ_KERNEL_SPACE, the function
- * always returns true except when the assertion fails.
+ * This variant returns false on failing assertion and true, else.
  */
 _Bool forward_remset (struct space *from,  /* descriptor of from-space */
                      struct space *to,    /* descriptor of to-space */
@@ -225,15 +224,11 @@ _Bool forward_remset (struct space *from,  /* descriptor of from-space */
 {
   value *from_start = from->start, *from_limit=from->limit, *from_rem_limit=from->rem_limit;
   value *q = from_limit;
-  #ifdef CERTICOQ_KERNEL_SPACE
   if (!((from_rem_limit-from_limit) <= (to->limit-to->start)))
   {
     fprintf(stderr, "Assertion \"from_rem_limit-from_limit <= to->limit-to->start\" failed in forward_remset\n");
     return 0;
   }
-  #else
-  assert (from_rem_limit-from_limit <= to->limit-to->start);
-  #endif
   while (q != from_rem_limit) {
     value *p = *(value**)q;
     if (!(from_start <= p && p < from_limit)) {
@@ -314,7 +309,7 @@ _Bool do_generation (struct space *from,  /* descriptor of from-space */
   forward_roots(from->start, from->limit, &to->next, fr);
   do_scan(from->start, from->limit, p, &to->next);
   #ifdef CERTICOQ_DEBUG_GC
-  fprintf(stderr,"%5.3f%% occupancy\n",
+  printk(KERN_INFO "%5.3f%% occupancy\n",
 	  (to->next-p)/(double)(from->next-from->start));
   #endif
   from->next=from->start;
@@ -343,15 +338,11 @@ uintnat gensize(uintnat words)
   d = maxint/RATIO;
   if (words<d) d=words;
   n = d*RATIO;
-  #ifdef CERTICOQ_KERNEL_SPACE
   if (!(n >= (2*words)))
   {
     fprintf(stderr, "Assertion in gensize failed: next_gen_size >= 2*curr_gen_size.\n");
     return 0;
   }
-  #else
-  assert (n >= 2*words);
-  #endif
 
   return n;
 }
@@ -372,10 +363,10 @@ _Bool create_space(struct space *s,  /* which generation to create */
   p = (value *)malloc(n * sizeof(value));
   if (p==NULL)
   {
-    fprintf(stderr, "Could not create the next generation\n");
+    printk(KERN_ERR "Could not create the next generation\n");
     return 0;
   }
-  /*  fprintf(stderr, "Created a generation of %d words\n", n); */
+  /*  printk(KERN_INFO "Created a generation of %d words\n", n); */
   s->start=p;
   s->next=p;
   s->limit = p+n;
@@ -396,7 +387,7 @@ struct heap *create_heap()
   struct heap *h = (struct heap *)malloc(sizeof (struct heap));
   if (h==NULL)
   {
-    fprintf(stderr, "Could not create the heap\n");
+    printk(KERN_ERR "Could not create the heap\n");
     return h;
   }
 
@@ -431,7 +422,7 @@ struct thread_info *make_tinfo(void) {
   tinfo = (struct thread_info *)malloc(sizeof(struct thread_info));
   if (!tinfo)
   {
-    fprintf(stderr, "Could not allocate thread_info struct\n");
+    printk(KERN_ERR "Could not allocate thread_info struct\n");
     return tinfo;
   }
 
@@ -457,20 +448,16 @@ _Bool resume(struct thread_info *ti)
   struct heap *h = ti->heap;
   value *lo, *hi;
   uintnat num_allocs = ti->nalloc;
-  #ifdef CERTICOQ_KERNEL_SPACE
   if (NULL==h)
   {
     fprintf(stderr, "Heap is unset in resume\n");
     return 0;
   }
-  #else
-  assert (h);
-  #endif
   lo = h->spaces[0].start;
   hi = h->spaces[0].limit;
   if (hi-lo < num_allocs)   /* See NOTE-POINTER-ARITH below */
   {
-    fprintf(stderr, "Nursery is too small for function's num_allocs\n");
+    printk(KERN_ERR "Nursery is too small for function's num_allocs\n");
     return 0;
   }
 
@@ -485,7 +472,7 @@ _Bool resume(struct thread_info *ti)
  * resume fail or MAX_SPACES is reached, this variant returns false in this case and true,
  * else.
  */
-_Bool do_garbage_collect(struct thread_info *ti)
+_Bool garbage_collect(struct thread_info *ti)
 /* See the header file for the interface-spec of this function. */
 {
   struct heap *h = ti->heap;
@@ -509,7 +496,7 @@ _Bool do_garbage_collect(struct thread_info *ti)
       }
       /* Copy all the objects in generation i, into generation i+1 */
       #ifdef CERTICOQ_DEBUG_GC
-      fprintf(stderr, "Generation %d:  ", i);
+      printk(KERN_INFO "Generation %d:  ", i);
       #endif
       if (0==do_generation(h->spaces+i, h->spaces+(i+1), ti->fp))
       {
@@ -529,26 +516,9 @@ _Bool do_garbage_collect(struct thread_info *ti)
 
   /* If we get to i==MAX_SPACES, that's bad news */
   /*  assert (MAX_SPACES == i); */
-  fprintf(stderr, "Ran out of generations\n");
+  printk(KERN_ERR "Ran out of generations\n");
   return 0;
 }
-
-/* In Kernel space, the error from do_garbage_collect is propagated
- * while a failing do_garbage_collect leads to an exit in user space
- * as before.
- */
-#ifdef CERTICOQ_KERNEL_SPACE
-inline _Bool garbage_collect(struct thread_info *ti)
-{
-  return do_garbage_collect(ti);
-}
-#else
-inline void garbage_collect(struct thread_info *ti)
-{
-  if (0==do_garbage_collect(ti))
-    exit(1);
-}
-#endif
 
 
 /* REMARK.  The generation-management policy in the garbage_collect function
@@ -561,7 +531,7 @@ inline void garbage_collect(struct thread_info *ti)
 */
 
 void reset_heap (struct heap *h) {
-  fprintf(stderr, "Debug: in reset_heap\n");
+  printk(KERN_INFO "Debug: in reset_heap\n");
   int i;
   for (i=0; i<MAX_SPACES; i++)
     h->spaces[i].next = h->spaces[i].start;
@@ -569,7 +539,7 @@ void reset_heap (struct heap *h) {
 
 
 void free_heap (struct heap *h) {
-  fprintf(stderr, "Debug: in free_heap\n");
+  printk(KERN_INFO "Debug: in free_heap\n");
   int i;
   for (i=0; i<MAX_SPACES; i++) {
     value *p = h->spaces[i].start;
@@ -646,13 +616,13 @@ void *export_heap(struct thread_info *ti, value root) {
   struct space* fake_sp = (struct space*)malloc(sizeof(struct space));
   if (!fake_sp)
   {
-    fprintf(stderr, "Could not allocate fake_sp\n");
+    printk(KERN_ERR "Could not allocate fake_sp\n");
     return NULL;
   }
 
   if (0==create_space(fake_sp, sp->next - sp->start))
   {
-    fprintf(stderr, "Could not allocate space for fake_sp\n");
+    printk(KERN_ERR "Could not allocate space for fake_sp\n");
     free(fake_sp);
     return NULL;
   }
@@ -665,7 +635,7 @@ void *export_heap(struct thread_info *ti, value root) {
   struct space* value_sp = (struct space*)malloc(sizeof(struct space));
   if (!value_sp)
   {
-    fprintf(stderr, "Could not allocate value_sp. Freeing fake_sp->start and fake_sp.\n");
+    printk(KERN_ERR "Could not allocate value_sp. Freeing fake_sp->start and fake_sp.\n");
     free(fake_sp->start);
     free(fake_sp);
     return NULL;
@@ -673,7 +643,7 @@ void *export_heap(struct thread_info *ti, value root) {
 
   if (0==create_space(value_sp, fake_sp->next - fake_sp->start))
   {
-    fprintf(stderr, "Could not allocate space for value_sp. Freeing fake_sp->start, fake_sp and value_sp.\n");
+    printk(KERN_ERR "Could not allocate space for value_sp. Freeing fake_sp->start, fake_sp and value_sp.\n");
     free(fake_sp->start);
     free(fake_sp);
     free(value_sp);
@@ -698,15 +668,11 @@ void *export_heap(struct thread_info *ti, value root) {
 
 /* mutable write barrier */
 _Bool certicoq_modify(struct thread_info *ti, value *p_cell, value p_val) {
-  #ifdef CERTICOQ_KERNEL_SPACE
   if (!(ti->alloc < ti->limit))
   {
     fprintf(stderr, "Assertion \"ti->alloc < ti->limit\" failed in certicoq_modify\n");
     return 0;
   }
-  #else
-  assert ((ti->alloc < ti->limit));
-  #endif
   *p_cell = p_val;
   if (is_ptr(p_val)) {
     *(value **)(--ti->limit) = p_cell;
@@ -721,10 +687,10 @@ void print_heapsize(struct thread_info *ti) {
     if (!(allocated || remembered)) {
       continue;
     }
-    printf("generation %d:\n", i);
-    printf("  size: %d\n", (int)(ti->heap->spaces[i].rem_limit - ti->heap->spaces[i].start));
-    printf("  allocated: %d\n", allocated);
-    printf("  remembered: %d\n", remembered);
+    printk(KERN_INFO "generation %d:\n", i);
+    printk(KERN_INFO "  size: %d\n", (int)(ti->heap->spaces[i].rem_limit - ti->heap->spaces[i].start));
+    printk(KERN_INFO "  allocated: %d\n", allocated);
+    printk(KERN_INFO "  remembered: %d\n", remembered);
   }
 }
 
