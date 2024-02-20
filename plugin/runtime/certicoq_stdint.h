@@ -5,8 +5,8 @@
  * for example.
  */
 
-#ifndef CERTICOQ_GC_STDINT_H
-#define CERTICOQ_GC_STDINT_H
+#ifndef CERTICOQ_STDINT_H
+#define CERTICOQ_STDINT_H
 
 #ifdef CLIGHT_KERNEL_CODE
  // Definitions for use when compiling for Linux Kernel modules
@@ -16,4 +16,4 @@
  #include <stdint.h>
 #endif // CLIGHT_KERNEL_CODE
 
-#endif // CERTICOQ_GC_STDINT_H
+#endif // CERTICOQ_STDINT_H
