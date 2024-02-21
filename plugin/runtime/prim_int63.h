@@ -16,6 +16,7 @@ extern primint prim_int63_sub(primint x, primint y);
 extern primint prim_int63_mul(primint x, primint y);
 extern primint prim_int63_mod(primint x, primint y);
 extern primint prim_int63_div(primint x, primint y);
+extern primint prim_int63_div2(primint x);
 
 extern primint prim_int63_land(primint x, primint y);
 extern primint prim_int63_lsl(primint x, primint y);
@@ -29,6 +30,7 @@ extern primint prim_int63_tail0(primint x);
 extern primbool prim_int63_eqb(primint x, primint y);
 extern primbool prim_int63_leb(primint x, primint y);
 extern primbool prim_int63_ltb(primint x, primint y);
+extern primbool prim_int63_in_interval(primint x, primint min, primint max);
 extern value prim_int63_compare(primint x, primint y);
 
 extern primintcarry prim_int63_addc(struct thread_info *, primint x, primint y);

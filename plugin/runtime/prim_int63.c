@@ -1,13 +1,11 @@
-#include <stdio.h>
-#include <stdlib.h>
+#include <certicoq_stdio.h>
+#include <certicoq_stdint.h>
 #include "gc_stack.h"
 
 typedef value primint;
 typedef value primbool;
 typedef value primintcarry;
 typedef value primintpair;
-
-#define trace(...) // printf(__VA_ARGS__)
 
 #define maxuint63 0x7FFFFFFFFFFFFFFF
 
@@ -42,6 +40,16 @@ primint prim_int63_div(primint x, primint y)
   // trace("Calling prim_int63_div\n");
   return (Val_long (Unsigned_long_val(x) / Unsigned_long_val(y)));
 }
+
+// TODO Using lsr internally would be more performant
+primint prim_int63_div2(primint x)
+{
+  unsigned long long xr = Unsigned_long_val(x);
+
+  trace("Calling prim_int63_div2 on %llu: %llu \n", xr, xr / 2);
+  return (Val_long ((xr / 2)));
+}
+
 
 primint prim_int63_land(primint x, primint y)
 { 
@@ -125,10 +133,28 @@ primbool prim_int63_leb(primint x, primint y)
   trace("Calling prim_int63_leb\n");
   return (mk_bool (x <= y));
 }
+
 primbool prim_int63_ltb(primint x, primint y)
 {
   trace("Calling prim_int63_ltb\n");
   return (mk_bool (x < y));
+}
+
+// This function does not check whether min <= max
+// However, if  max < min, then
+//  if x <= max, then also x < min holds
+//  if x >= min, then also x > max holds
+//  and the result will be false
+primbool prim_int63_in_interval(primint x, primint min, primint max)
+{
+  unsigned long long xr   = Unsigned_long_val(x);
+  unsigned long long minr = Unsigned_long_val(min);
+  unsigned long long maxr = Unsigned_long_val(max);
+
+  int is_in_interval = (int)((minr <= xr) && (xr <= maxr));
+
+  trace("Calling prim_int63_in_interval on %llu, min %llu and max %llu: %d \n", xr, minr, maxr, is_in_interval);
+  return (mk_bool (is_in_interval));
 }
 
 value prim_int63_compare(primint x, primint y)
